@@ -41,7 +41,7 @@ async function options({ accessAud, access, staticToken = token } = {}) {
 export class ExoProvider extends Provider {
   failNextSubscriptionForTest() { this.failNextSubscription = true; }
   subscribe(...args) { if (this.failNextSubscription) { this.failNextSubscription = false; throw new Error("transient subscription failure"); } return super.subscribe(...args); }
-  async proxyForTest(identity, request) { try { const response = await proxyEgress(identity, request, this); return {status: response.status, body: await response.text()}; } catch (error) { return {error: error.message}; } }
+  async proxyForTest(identity, request) { try { const response = await proxyEgress(identity, request, this); return {status: response.status, body: await response.text(), setCookie: response.headers.get("set-cookie")}; } catch (error) { return {error: error.message}; } }
 }
 export class ExoThread extends Thread {
   async harnessRequestForTest(thread_id, request) { try { return await this.runtime.call({type: "harness_request", thread_id, request}); } catch (error) { return {error: error.message}; } }
@@ -198,10 +198,14 @@ export {default, ExoSandbox, ExoEgress} from "./implementation.js";`,
                 return Response.json(
                   {
                     header: request.headers.get("authorization"),
+                    cookie: request.headers.get("cookie"),
                   },
                   {
                     status: 302,
-                    headers: { location: "https://other.example/" },
+                    headers: {
+                      location: "https://other.example/",
+                      "set-cookie": "user_session=upstream",
+                    },
                   },
                 );
               assert.equal(
@@ -1201,11 +1205,27 @@ test("Worker egress substitutes credentials and enforces destination policies", 
   assert.equal(response.status, 302);
   assert.deepEqual(JSON.parse(response.body), {
     header: `Bearer ${key}`,
+    cookie: null,
   });
+  assert.equal(response.setCookie, null);
   assert.equal(
     (await proxy(identity, "http://model.example/echo")).status,
     302,
   );
+  const guest = {
+    authorization: "token ghp_guest",
+    cookie: "user_session=guest",
+  };
+  const stripped = await proxy(identity, "https://model.example/echo", guest);
+  assert.equal(stripped.status, 302);
+  assert.deepEqual(JSON.parse(stripped.body), { header: null, cookie: null });
+  assert.equal(stripped.setCookie, null);
+  const unbound = await proxy(identity, "https://other.example/echo", guest);
+  assert.deepEqual(JSON.parse(unbound.body), {
+    header: guest.authorization,
+    cookie: guest.cookie,
+  });
+  assert.equal(unbound.setCookie, "user_session=upstream");
   for (const networking of [
     { type: "limited", allowed_hosts: ["MODEL.EXAMPLE"] },
     { type: "disabled" },

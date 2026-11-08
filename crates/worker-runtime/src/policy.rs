@@ -36,6 +36,7 @@ pub(crate) struct ProxyHeaders {
     headers: Vec<(String, String)>,
     credentials: Vec<(String, String)>,
     refreshed: bool,
+    strip_set_cookie: bool,
 }
 pub(crate) async fn proxy_headers(
     runtime: &Runtime,
@@ -107,5 +108,6 @@ pub(crate) async fn proxy_headers(
         headers,
         credentials,
         refreshed,
+        strip_set_cookie: session.credential_host(&destination.host)?,
     })
 }

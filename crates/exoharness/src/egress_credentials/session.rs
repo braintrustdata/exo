@@ -68,6 +68,16 @@ impl EgressSession {
         ensure!(&session.identity == identity, "sandbox identity mismatch");
         Ok(session)
     }
+    /// Whether a binding names `host`. Responses from it must not set cookies
+    /// in the sandbox.
+    pub fn credential_host(&self, host: &str) -> Result<bool> {
+        for binding in &self.policy.credentials {
+            if binding.networking.hosts()?.contains(host) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     pub async fn rewrite(
         &self,
         state: &dyn ExoHarness,
@@ -221,6 +231,35 @@ mod tests {
             .await
             .expect_err("invalid stored policy");
         assert!(matches!(error, EgressError::Internal(_)), "{error:#}");
+        Ok(())
+    }
+
+    #[test]
+    fn credential_hosts_are_the_hosts_bindings_name() -> Result<()> {
+        let credentials = vec![EgressCredentialBinding {
+            name: "github".into(),
+            environment_variable: "GH_TOKEN".into(),
+            networking: CredentialNetworkPolicy::Destinations {
+                allowed_destinations: vec![crate::CredentialDestination::url(
+                    "https://API.test/graphql",
+                )?],
+            },
+            injection_location: CredentialInjectionLocation { header: true },
+        }];
+        let session = EgressSession {
+            identity: EgressIdentity {
+                sandbox_id: "sandbox".into(),
+                scope: ResourceScope::Global,
+            },
+            environment: CredentialBindings::new(credentials.clone(), None)?.environment(),
+            policy: EgressPolicy {
+                networking: SandboxNetworkPolicy::Unrestricted,
+                allowed_tcp_ports: None,
+                credentials,
+            },
+        };
+        assert!(session.credential_host("api.test")?);
+        assert!(!session.credential_host("public.test")?);
         Ok(())
     }
 }

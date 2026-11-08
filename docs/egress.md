@@ -195,8 +195,8 @@ sends its own credential to a bound host may be following injected instructions.
 
 `CredentialBindings::rewrite_headers` applies the same request rule for hosted
 interception. Callers that forward the response must remove `Set-Cookie`
-themselves. `validate` and `substitute` alone do not remove headers. The signal
-is not emitted on `wasm32`.
+themselves, as the Cloudflare Worker does. `validate` and `substitute` alone do
+not remove headers. The signal is not emitted on `wasm32`.
 
 The rule applies where the proxy sees HTTP, on ports 80 and 443. Requests that
 name a credential host there are always intercepted. With unrestricted

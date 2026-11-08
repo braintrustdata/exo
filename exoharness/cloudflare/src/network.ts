@@ -5,6 +5,7 @@ export interface ProxyHeaders {
   headers: [string, string][];
   credentials: [string, string][];
   refreshed: boolean;
+  strip_set_cookie: boolean;
 }
 
 export type ProxyReply = ProxyHeaders | { status: number; error: string };
@@ -64,6 +65,10 @@ export async function proxyEgress(
         await response.body?.cancel();
         response = await send(fresh.headers);
       }
+    }
+    if (policy.strip_set_cookie) {
+      response = new Response(response.body, response);
+      response.headers.delete("set-cookie");
     }
     return response;
   } catch (error) {
