@@ -63,8 +63,8 @@ In the agent conversation, use `/sandbox` to run:
 The client supplies `Bearer ` or other surrounding syntax. The proxy replaces
 only the placeholder. `Authorization`, `x-api-key`, and other ordinary headers
 work; routing and framing headers cannot contain placeholders. On a host named
-by a binding, `Authorization` must hold the placeholder; see
-[Credentials on bound hosts](#credentials-on-bound-hosts).
+by a binding, `Authorization` must be the placeholder, optionally after a scheme;
+see [Credentials on bound hosts](#credentials-on-bound-hosts).
 
 The CLI selects binding names or IDs from the sandbox's accessible vaults:
 thread attachments, then agent attachments, then the global vault. Named vaults
@@ -166,12 +166,13 @@ A host named in any binding's `CredentialNetworkPolicy` receives credentials
 only from the resolver. Before forwarding any HTTP request to such a host, the
 proxy:
 
-- removes `Authorization` unless the request has exactly one, holding exactly
-  one placeholder whose binding permits the destination. The value must be the
-  placeholder alone, `<scheme> <placeholder>` optionally followed by
-  `; name=value` parameters, or Basic credentials whose password is the
-  placeholder. URL credentials (`https://user:token@host/`) arrive as Basic
-  credentials, so a token the client supplies itself is removed.
+- removes `Authorization` unless the request has exactly one, and it is exactly
+  one placeholder whose binding permits the destination: the placeholder alone,
+  `<scheme> <placeholder>`, or Basic credentials whose password is the
+  placeholder. Nothing may follow the placeholder, because some servers read
+  later parameters such as `; token=...` as the credential. URL credentials
+  (`https://user:token@host/`) arrive as Basic credentials, so a token the
+  client supplies itself is removed.
 - removes every `Cookie`, including one that contains a placeholder.
 - removes `Set-Cookie` from the response.
 
@@ -203,8 +204,9 @@ name a credential host there are always intercepted. With unrestricted
 networking, HTTPS is intercepted by TLS server name, so another name served by
 the same upstream is tunneled unchanged. Other TCP ports that the policy allows
 reach a bound host's addresses without inspection, so a client could, for
-example, use its own SSH key on port 22. Set `allowed_tcp_ports` to `[80, 443]`
-to close that path.
+example, use its own SSH key on port 22. Policies with credential bindings
+should set `allowed_tcp_ports` to `[80, 443]`, or `[443]`, so every connection
+to a bound host is inspected.
 
 ## Policy and credentials
 

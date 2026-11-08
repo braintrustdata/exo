@@ -595,19 +595,22 @@ async fn proxy_substitutes_placeholders_in_header_formats() -> Result<()> {
             .await?,
         "raw-v1"
     );
-    assert_eq!(
-        proxy_client
-            .get("https://api.test/auth")
-            .header(
-                "authorization",
-                format!("Token {}; scope=read", proxy.environment()["TEST_API_KEY"])
-            )
-            .send()
-            .await?
-            .text()
-            .await?,
-        "token-v1"
-    );
+    // Ordinary headers keep surrounding syntax. On a bound host, text after an
+    // Authorization placeholder could carry the client's own credential.
+    let token = format!("Token {}; scope=read", proxy.environment()["TEST_API_KEY"]);
+    for (header, expected) in [("x-api-key", "token-v1"), ("authorization", "anonymous")] {
+        assert_eq!(
+            proxy_client
+                .get("https://api.test/auth")
+                .header(header, &token)
+                .send()
+                .await?
+                .text()
+                .await?,
+            expected,
+            "{header}"
+        );
+    }
 
     assert_eq!(
         proxy_client

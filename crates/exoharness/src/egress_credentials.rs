@@ -536,10 +536,10 @@ fn signal_foreign_credentials(
     );
 }
 
-/// Whether `value` holds exactly one placeholder this destination permits, in
-/// the credential position: `<placeholder>` or `<scheme> <placeholder>`,
-/// optionally followed by `; name=value` parameters, or Basic credentials whose
-/// password is the placeholder. Other text could carry the client's own secret.
+/// Whether `value` is exactly one placeholder this destination permits:
+/// `<placeholder>`, `<scheme> <placeholder>`, or Basic credentials whose
+/// password is the placeholder. Any other text could carry the client's own
+/// secret, including parameters that some servers read as the credential.
 fn placeholder_authorization(
     bindings: &[Binding],
     destination: &EgressDestination,
@@ -562,23 +562,14 @@ fn placeholder_authorization(
             .is_some_and(|(_, password)| placeholders.any(|placeholder| password == placeholder));
     }
     placeholders.any(|placeholder| {
-        let Some((prefix, suffix)) = value.split_once(placeholder) else {
+        let Some(prefix) = value.strip_suffix(placeholder) else {
             return false;
         };
         let scheme = prefix.trim_end_matches(' ');
-        (prefix.is_empty() || (scheme.len() < prefix.len() && is_token(scheme)))
-            && !prefix.contains(PLACEHOLDER_PREFIX)
-            && !suffix.contains(PLACEHOLDER_PREFIX)
-            && (suffix.is_empty() || suffix.strip_prefix(';').is_some_and(is_parameters))
-    })
-}
-
-fn is_parameters(parameters: &str) -> bool {
-    parameters.split(';').all(|parameter| {
-        parameter
-            .trim_matches(' ')
-            .split_once('=')
-            .is_some_and(|(name, value)| is_token(name) && is_token(value))
+        prefix.is_empty()
+            || (scheme.len() < prefix.len()
+                && is_token(scheme)
+                && !scheme.contains(PLACEHOLDER_PREFIX))
     })
 }
 
@@ -729,7 +720,6 @@ mod tests {
             (format!("token {PLACEHOLDER}"), true),
             (format!("Bearer  {PLACEHOLDER}"), true),
             (PLACEHOLDER.to_owned(), true),
-            (format!("Token {PLACEHOLDER}; scope=read"), true),
             (format!("Basic {PLACEHOLDER}"), true),
             (basic(&format!("x-access-token:{PLACEHOLDER}")), true),
             ("Bearer ghp_guest".into(), false),
@@ -748,10 +738,11 @@ mod tests {
             (format!("Bearer {PLACEHOLDER} ghp_guest"), false),
             (format!("Bearer {PLACEHOLDER}ghp_guest"), false),
             (format!("Bearer {PLACEHOLDER}, token ghp_guest"), false),
+            (format!("Token {PLACEHOLDER}; scope=read"), false),
+            (format!("token {PLACEHOLDER}; token=ghp_guest"), false),
             (format!("Token {PLACEHOLDER};ghp_guest"), false),
-            (format!("Token {PLACEHOLDER}; scope=read ghp_guest"), false),
-            (format!("Token {PLACEHOLDER}; scope=\"read\""), false),
             (format!("Bearer {PLACEHOLDER}; extra={PLACEHOLDER}"), false),
+            (format!("{PLACEHOLDER} {PLACEHOLDER}"), false),
             (format!("Basic {PLACEHOLDER} {PLACEHOLDER}"), false),
         ] {
             let headers = strip(&api, &[("authorization", &value)]);

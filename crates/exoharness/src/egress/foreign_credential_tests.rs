@@ -200,6 +200,10 @@ fn transparent_proxy_strips_foreign_credentials_only_on_bound_hosts() -> Result<
             client
                 .get("https://api.test/mixed")
                 .header(AUTHORIZATION, format!("Bearer {placeholder} {GUEST_TOKEN}")),
+            client.get("https://api.test/parameter").header(
+                AUTHORIZATION,
+                format!("token {placeholder}; token={GUEST_TOKEN}"),
+            ),
             client
                 .get("https://api.test/duplicate")
                 .header(AUTHORIZATION, format!("Bearer {GUEST_TOKEN}"))
@@ -240,6 +244,7 @@ fn transparent_proxy_strips_foreign_credentials_only_on_bound_hosts() -> Result<
             "/token",
             "/userinfo",
             "/mixed",
+            "/parameter",
             "/duplicate",
             "/cookie",
             "/cleartext",
@@ -280,6 +285,7 @@ fn transparent_proxy_strips_foreign_credentials_only_on_bound_hosts() -> Result<
             ("strip-transparent", "443", "authorization", Some("token")),
             ("strip-transparent", "443", "authorization", Some("basic")),
             ("strip-transparent", "443", "authorization", Some("bearer")),
+            ("strip-transparent", "443", "authorization", Some("token")),
             (
                 "strip-transparent",
                 "443",
