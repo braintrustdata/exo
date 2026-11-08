@@ -11,6 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+#[path = "foreign_credential_tests.rs"]
+mod foreign_credentials;
 #[path = "git_tests.rs"]
 mod git;
 

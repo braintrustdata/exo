@@ -62,7 +62,9 @@ In the agent conversation, use `/sandbox` to run:
 
 The client supplies `Bearer ` or other surrounding syntax. The proxy replaces
 only the placeholder. `Authorization`, `x-api-key`, and other ordinary headers
-work; routing and framing headers cannot contain placeholders.
+work; routing and framing headers cannot contain placeholders. On a host named
+by a binding, `Authorization` must hold the placeholder; see
+[Credentials on bound hosts](#credentials-on-bound-hosts).
 
 The CLI selects binding names or IDs from the sandbox's accessible vaults:
 thread attachments, then agent attachments, then the global vault. Named vaults
@@ -157,6 +159,52 @@ request per-tool approval. Declared MCP tool calls use the configured tool polic
 Tool approvals control harness calls; credential grants authorize requests
 to the endpoint and do not enforce tool-level permissions on arbitrary sandbox
 code.
+
+## Credentials on bound hosts
+
+A host named in any binding's `CredentialNetworkPolicy` receives credentials
+only from the resolver. Before forwarding any HTTP request to such a host, the
+proxy:
+
+- removes `Authorization` unless the request has exactly one, holding exactly
+  one placeholder whose binding permits the destination. The value must be the
+  placeholder alone, `<scheme> <placeholder>` optionally followed by
+  `; name=value` parameters, or Basic credentials whose password is the
+  placeholder. URL credentials (`https://user:token@host/`) arrive as Basic
+  credentials, so a token the client supplies itself is removed.
+- removes every `Cookie`, including one that contains a placeholder.
+- removes `Set-Cookie` from the response.
+
+The request is still forwarded, so anonymous requests for public resources
+work; requests that need authentication fail upstream unless they use a
+placeholder. A placeholder the destination does not permit is still rejected,
+not removed. Other headers, such as `x-api-key`, are unchanged, and hosts
+without a binding receive both headers as sent.
+
+This changes behavior for clients that send their own `Authorization` or
+cookies to a bound host: those values no longer reach it. A binding means that
+credentials for its hosts come from the host side.
+
+Each request with a removed header emits a `sandbox.foreign_credential` sandbox
+signal: a `tracing` event on the `sandbox_signal` target with severity `signal`,
+`host`, `method`, `port`, `stripped` (`authorization`, `cookie`, or
+`authorization,cookie`), `auth_scheme` (`basic`, `bearer`, `token`, or `other`;
+comma-separated when several values were removed), and `bindings` (the names of
+the bindings covering the host). Header values are never reported. A client that
+sends its own credential to a bound host may be following injected instructions.
+
+`CredentialBindings::rewrite_headers` applies the same request rule for hosted
+interception. Callers that forward the response must remove `Set-Cookie`
+themselves. `validate` and `substitute` alone do not remove headers. The signal
+is not emitted on `wasm32`.
+
+The rule applies where the proxy sees HTTP, on ports 80 and 443. Requests that
+name a credential host there are always intercepted. With unrestricted
+networking, HTTPS is intercepted by TLS server name, so another name served by
+the same upstream is tunneled unchanged. Other TCP ports that the policy allows
+reach a bound host's addresses without inspection, so a client could, for
+example, use its own SSH key on port 22. Set `allowed_tcp_ports` to `[80, 443]`
+to close that path.
 
 ## Policy and credentials
 
@@ -393,6 +441,9 @@ network enforcement and authenticated transport.
 Git uses its normal HTTPS URL through the sandbox network adapter. For Basic authentication,
 Exo decodes the username/password, substitutes any credential placeholder with
 the token returned by the resolver, and re-encodes the header before forwarding it.
+On a bound host, Basic credentials must carry the placeholder as the password,
+from the remote URL or a credential helper, or as the raw `extraHeader` value
+shown below; other Basic credentials are removed.
 
 Git read and write operations use ordinary smart HTTP. A read uses
 `GET /repo.git/info/refs?service=git-upload-pack` followed by

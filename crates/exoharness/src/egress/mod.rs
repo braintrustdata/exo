@@ -396,6 +396,13 @@ impl State {
                 response = relay(method, headers, url, body, &client).await?;
             }
         }
+        if self
+            .bindings
+            .iter()
+            .any(|binding| binding.covers_host(&destination.host))
+        {
+            response.headers_mut().remove(hyper::header::SET_COOKIE);
+        }
         Ok(proxy_response(response)?)
     }
 

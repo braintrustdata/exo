@@ -342,3 +342,64 @@ async fn resource_git_push_uses_proxy_credentials_and_honors_revocation() -> Res
     proxy.close();
     Ok(())
 }
+
+#[test]
+fn url_credentials_reach_a_bound_host_only_as_a_placeholder() -> Result<()> {
+    let signals = super::foreign_credentials::foreign_credential_signals(async {
+        let temp = tempfile::tempdir()?;
+        let empty = HashMap::new();
+        success(
+            temp.path(),
+            &empty,
+            &["init", "--bare", "authorized-repo.git"],
+        )
+        .await?;
+        let upstream = Upstream::start_with_git(Some(temp.path().to_owned())).await?;
+        let proxy = super::super::explicit::ExplicitProxy::with_listener(
+            State::new(
+                identity("git-userinfo"),
+                policy(),
+                Some(TestResolver::new()),
+                Arc::new(upstream.config.clone()),
+            )?,
+            TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?,
+            "127.0.0.1",
+        )
+        .await?;
+        let ca = temp.path().join("ca.pem");
+        std::fs::write(&ca, &proxy.ca_pem)?;
+        let mut env = proxy.environment.clone();
+        env.insert("GIT_SSL_CAINFO".into(), ca.to_string_lossy().into_owned());
+        env.insert("SSL_CERT_FILE".into(), ca.to_string_lossy().into_owned());
+        let remote = |password: &str| {
+            format!("https://x-access-token:{password}@api.test/authorized-repo.git")
+        };
+
+        // The upstream accepts the guest's own token, so only stripping stops it.
+        std::fs::write(temp.path().join("expected-token"), "ghp_guest_token")?;
+        let output = git(
+            temp.path(),
+            &env,
+            &["ls-remote", &remote("ghp_guest_token")],
+        )
+        .await?;
+        assert!(
+            !output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+
+        std::fs::write(temp.path().join("expected-token"), "canary-v1")?;
+        let placeholder = proxy.environment["TEST_API_KEY"].clone();
+        success(temp.path(), &env, &["ls-remote", &remote(&placeholder)]).await?;
+        proxy.close();
+        Ok(())
+    })?;
+    assert!(!signals.is_empty());
+    for fields in &signals {
+        assert_eq!(fields["sandbox_id"], "git-userinfo");
+        assert_eq!(fields["stripped"], "authorization");
+        assert_eq!(fields["auth_scheme"], "basic");
+    }
+    Ok(())
+}
